@@ -17,10 +17,11 @@ const (
 )
 
 type PurchaseRequest struct {
-	Name      string `json:"name" binding:"required"`
-	OrderNo   string `json:"order_no" binding:"required"`
-	NotifyUrl string `json:"notify_url" binding:"required"`
-	Amount    int    `json:"amount" binding:"required"`
+	Name        string `json:"name" binding:"required"`
+	OrderNo     string `json:"order_no" binding:"required"`
+	NotifyUrl   string `json:"notify_url" binding:"required"`
+	Amount      int    `json:"amount" binding:"required"`
+	PaymentType string `json:"payment_type,omitempty"` // Added field to store payment type
 }
 
 type PurchaseResponse struct {
@@ -33,6 +34,18 @@ func init() {
 }
 
 func (pc *CloudrevePayController) Purchase(c *gin.Context) {
+	// Get the payment type from the URL parameter
+	paymentType := c.Param("type")
+	if paymentType != "alipay" && paymentType != "wxpay" {
+		logrus.WithField("type", paymentType).Debugln("无效的支付类型")
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+			"code":    http.StatusBadRequest,
+			"data":    "",
+			"message": "无效的支付类型，仅支持 alipay 或 wxpay",
+		})
+		return
+	}
+
 	var req PurchaseRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		logrus.WithError(err).Debugln("无法解析请求")
@@ -43,6 +56,9 @@ func (pc *CloudrevePayController) Purchase(c *gin.Context) {
 		})
 		return
 	}
+
+	// Store the payment type in the request
+	req.PaymentType = paymentType
 
 	if err := pc.Cache.Set(PurchaseSessionPrefix+req.OrderNo, req, paymentTTL); err != nil {
 		logrus.WithError(err).Warningln("无法保存订单信息")
@@ -106,6 +122,17 @@ func (pc *CloudrevePayController) PurchasePage(c *gin.Context) {
 		return
 	}
 
+	// Validate payment type
+	if order.PaymentType != "alipay" && order.PaymentType != "wxpay" {
+		logrus.WithField("id", orderId).WithField("type", order.PaymentType).Debugln("无效的支付类型")
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+			"code":    http.StatusBadRequest,
+			"data":    "",
+			"message": "无效的支付类型",
+		})
+		return
+	}
+
 	baseURL, _ := url.Parse(pc.Conf.Base)
 	purchaseURL, _ := url.Parse("/notify/" + order.OrderNo)
 	returnURL, err := url.Parse("/return/" + order.OrderNo)
@@ -122,7 +149,7 @@ func (pc *CloudrevePayController) PurchasePage(c *gin.Context) {
 	amount := decimal.NewFromInt(int64(order.Amount)).Div(decimal.NewFromInt(100)).StringFixedBank(2)
 
 	args := &epay.PurchaseArgs{
-		Type:           epay.PurchaseType(pc.Conf.EpayPurchaseType),
+		Type:           epay.PurchaseType(order.PaymentType),
 		ServiceTradeNo: order.OrderNo,
 		Name:           order.Name,
 		Money:          amount,
@@ -146,5 +173,33 @@ func (pc *CloudrevePayController) PurchasePage(c *gin.Context) {
 	c.HTML(http.StatusOK, "purchase.tmpl", gin.H{
 		"Endpoint": endpoint,
 		"Params":   purchaseParams,
+	})
+}
+
+func (pc *CloudrevePayController) QueryOrder(c *gin.Context) {
+	orderId := c.Query("order_no")
+	if orderId == "" {
+		c.JSON(http.StatusOK, gin.H{
+			"code":  http.StatusBadRequest,
+			"error": "订单号不能为空",
+		})
+		return
+	}
+
+	_, ok := pc.Cache.Get(PurchaseSessionPrefix + orderId)
+
+	// 如果在缓存中找不到订单，则认为已支付 (因为支付成功后会从缓存删除)
+	if !ok {
+		c.JSON(http.StatusOK, gin.H{
+			"code": 0,
+			"data": "PAID",
+		})
+		return
+	}
+
+	// 否则，认为未支付
+	c.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"data": "UNPAID", // 或者文档中提到的 "其他值"
 	})
 }

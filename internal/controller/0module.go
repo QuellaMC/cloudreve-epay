@@ -17,7 +17,8 @@ type CloudrevePayController struct {
 }
 
 func RegisterControllers(c CloudrevePayController, r *gin.Engine) {
-	r.POST("/cloudreve/purchase", c.BearerAuthMiddleware(), c.Purchase)
+	r.POST("/cloudreve/purchase/:type", c.BearerAuthMiddleware(), c.Purchase)
+	r.GET("/cloudreve/purchase/:type", c.URLSignAuthMiddleware(), c.QueryOrder)
 	r.GET("/purchase/:id", c.PurchasePage)
 	r.GET("/notify/:id", c.Notify)
 	r.GET("/return/:id", c.Return)

@@ -1,34 +1,36 @@
+version: 2
+
 before:
   hooks:
     - go mod tidy
+
 builds:
   - env:
       - CGO_ENABLED=0
-
+    tool: "go1.19"
     binary: cloudreve_epay
-
     goos:
       - linux
       - windows
       - darwin
-
     goarch:
       - amd64
       - arm64
 
 archives:
   - format: tar.gz
-    # this name template makes the OS and Arch compatible with the results of uname.
     name_template: >-
-      cloudreve_epay_{{.Tag}}_{{- .Os }}_{{ .Arch }} {{- if .Arm }}v{{ .Arm }}{{ end }}
-    # use zip for windows archives
+      cloudreve_epay_{{.Tag}}_{{- .Os }}_{{ .Arch }}{{- if .Arm }}v{{ .Arm }}{{ end }}
     format_overrides:
       - goos: windows
         format: zip
+
 checksum:
   name_template: "checksums.txt"
+
 snapshot:
   name_template: "{{ incpatch .Version }}-next"
+
 changelog:
   sort: asc
   filters:
